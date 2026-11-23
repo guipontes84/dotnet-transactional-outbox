@@ -1,6 +1,6 @@
 # Transactional Outbox com C# e Kafka
 
-Exemplo didático de **.NET 10 + EF Core + SQLite + Kafka** usando um registro interno de Pix. Não realiza transferências bancárias.
+Exemplo didático de **.NET 10 + EF Core + SQLite + Kafka** usando **três registros internos de Pix**: R$ 25,90, R$ 42,00 e R$ 100,00. Não realiza transferências bancárias. Cada Pix recebe um ID e um EventId próprios; os números #001–#003 no GIF são rótulos didáticos.
 
 ![Fluxo animado do Outbox](media/outbox-pix.gif)
 
@@ -33,7 +33,7 @@ dotnet run --project src/OutboxPixDemo -- --urls http://localhost:5080
 Em outro terminal PowerShell:
 
 ```powershell
-Invoke-RestMethod http://localhost:5080/pix -Method Post -ContentType application/json -Body '{"amountInCents":2590}'
+./scripts/register-three-pix.ps1
 Invoke-RestMethod http://localhost:5080/outbox
 docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic pix --from-beginning
 ```
@@ -41,10 +41,12 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-s
 ## Reproduzir a falha
 
 1. Pare somente o broker: `docker compose stop kafka`.
-2. Crie outro Pix pelo endpoint. A resposta continua 201: Pix e Outbox estão no SQLite.
-3. Consulte `/outbox`: o evento permanece com `publishedAtUtc: null`.
+2. Em uma base nova, execute `./scripts/register-three-pix.ps1` uma vez. As três respostas são 201: os três Pix e seus eventos estão no SQLite, cada par gravado em sua própria transação.
+3. Consulte `/outbox`: os três eventos permanecem com `publishedAtUtc: null`.
 4. Inicie o broker: `docker compose start kafka`.
-5. O relay tenta novamente e preenche `publishedAtUtc` após confirmação.
+5. O relay tenta novamente, um evento por vez, e preenche `publishedAtUtc` após cada confirmação. Ao final: três Pix no banco e três eventos distintos no Kafka.
+
+O script cria três novos Pix em cada execução. Para repetir a demonstração partindo do zero, use outro arquivo SQLite pela variável `ConnectionStrings__Pix`; não execute o script novamente esperando manter apenas três registros.
 
 A consulta `/outbox` exibe dados internos para facilitar esta demonstração.
 
@@ -83,7 +85,7 @@ O consumidor deve deduplicar pelo `EventId`. Para efeitos no mesmo banco do cons
 - [SVG original](media/outbox-pix.svg)
 - [Padrão visual e instruções de exportação](docs/padrao-visual.md)
 
-Validação local: compilação e sete verificações automatizadas com SQLite real e publisher simulado. A integração com um broker Kafka real depende de Docker em execução e não foi executada neste ambiente.
+Validação local: compilação e nove verificações automatizadas com SQLite real e publisher simulado, incluindo os três Pix e seus EventIds distintos. O teste de queda após ACK produz quatro entregas simuladas (três eventos distintos e uma repetição deliberada); o GIF mostra a recuperação sem essa queda adicional e encerra com três eventos. A integração com um broker Kafka real depende de Docker em execução e não foi executada neste ambiente.
 
 ## Autor
 
